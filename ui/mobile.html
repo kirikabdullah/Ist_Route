@@ -1,0 +1,694 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#FFFFFF">
+<title>İst-Route · Mobil</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script>
+/* Kullanıcının mobil tasarım sistemi (tailwind.config.js) */
+tailwind.config = {
+  theme: { extend: {
+    fontFamily: { sans: ['Inter','system-ui','-apple-system','BlinkMacSystemFont','Segoe UI','Roboto','sans-serif'] },
+    colors: {
+      brand: { DEFAULT: '#C1125A' },
+      istanbulkart: { blue: '#0A7EB9', cyan: '#00CCFF' },
+      ui: { dark: '#1F2937', muted: '#6B7280', light: '#9CA3AF', bg: '#F3F4F6' },
+      route: { red: '#E30613', blue: '#00A3E0', yellow: '#FBB034' }
+    },
+    fontSize: {
+      heading: ['1.25rem', { lineHeight: '1.75rem', fontWeight: '500' }],
+      title: ['1rem', { lineHeight: '1.5rem', fontWeight: '500' }],
+      body: ['0.875rem', { lineHeight: '1.25rem', fontWeight: '400' }],
+      description: ['0.8125rem', { lineHeight: '1.125rem', fontWeight: '400' }],
+      caption: ['0.75rem', { lineHeight: '1rem', fontWeight: '500' }]
+    }
+  } }
+};
+</script>
+<style>
+  :root{ --sheet:0px; --tabs:64px; --safe-b:env(safe-area-inset-bottom,0px); --safe-t:env(safe-area-inset-top,0px);
+    --brand:#C1125A; --ikblue:#0A7EB9; --ikcyan:#00CCFF; --dark:#1F2937; --muted:#6B7280; --light:#9CA3AF; --bg:#F3F4F6; }
+  html,body{height:100%;margin:0;overflow:hidden;background:var(--bg);-webkit-tap-highlight-color:transparent;overscroll-behavior:none}
+  body{font-family:Inter,system-ui,-apple-system,sans-serif;color:var(--dark);font-feature-settings:"tnum" 1}
+  button{touch-action:manipulation}
+  [hidden]{display:none!important}   /* Tailwind flex/grid sınıfları hidden özelliğini ezmesin */
+  :focus-visible{outline:2px solid var(--ikblue);outline-offset:2px}
+  ::selection{background:rgba(10,126,185,.2)}
+  #map{position:fixed;inset:0;z-index:0;background:#E5E7EB}
+  .leaflet-control-attribution{font-size:10px!important;background:rgba(255,255,255,.75)!important;color:var(--muted)!important}
+  .leaflet-bottom.leaflet-right{bottom:calc(var(--sheet) + var(--tabs) + var(--safe-b))}
+  .leaflet-div-icon{background:none;border:0}
+  /* sheet */
+  .sheet{position:fixed;left:0;right:0;bottom:calc(var(--tabs) + var(--safe-b));z-index:30;height:var(--sheet);
+    background:#fff;border-radius:20px 20px 0 0;box-shadow:0 -8px 30px rgba(31,41,55,.14);display:flex;flex-direction:column;
+    transition:height .32s cubic-bezier(.2,.8,.2,1)}
+  .sheet.dragging{transition:none}
+  .grab{flex:none;height:22px;display:grid;place-items:center;cursor:grab;touch-action:none}
+  .grab i{width:40px;height:5px;border-radius:3px;background:#D1D5DB}
+  .sheet-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+  .tabs{position:fixed;left:0;right:0;bottom:0;z-index:40;height:calc(var(--tabs) + var(--safe-b));padding-bottom:var(--safe-b);
+    background:#fff;border-top:1px solid #E5E7EB;display:grid;grid-template-columns:repeat(4,1fr)}
+  .tab{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:var(--light);font-size:11px;font-weight:600}
+  .tab[aria-selected="true"]{color:var(--brand)}
+  .tab .dot{position:absolute;margin-left:18px;margin-top:-18px;width:8px;height:8px;border-radius:50%;background:var(--brand);border:2px solid #fff}
+  /* route option */
+  .opt{position:relative;display:flex;gap:12px;width:100%;text-align:left;padding:12px 14px;border-radius:16px;border:1.5px solid #E5E7EB;background:#fff;transition:border-color .2s,box-shadow .2s,background .2s}
+  .opt[aria-checked="true"]{border-color:var(--c);box-shadow:0 6px 18px color-mix(in srgb,var(--c) 22%,transparent);background:color-mix(in srgb,var(--c) 5%,#fff)}
+  .opt[aria-disabled="true"]{opacity:.5}
+  .opt .bar{width:5px;border-radius:3px;background:var(--c);flex:none}
+  /* timeline */
+  .tl{position:relative;display:flex;gap:12px;padding-bottom:14px}
+  .tl:last-child{padding-bottom:0}
+  .tl .ic{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--c);color:#fff;z-index:1}
+  .tl .ic.walk{background:#F3F4F6;color:var(--muted)}
+  .tl .ic.mola{background:#FBB034;color:#3a2600}
+  .tl::before{content:"";position:absolute;left:15px;top:32px;bottom:0;width:2px;background:var(--lc,#E5E7EB)}
+  .tl:last-child::before{display:none}
+  .tl.now .ic{box-shadow:0 0 0 4px color-mix(in srgb,var(--c) 30%,transparent)}
+  .tl.done{opacity:.45}
+  /* map visuals */
+  .flow{stroke-dasharray:2 16;animation:flow 1.1s linear infinite}
+  @keyframes flow{to{stroke-dashoffset:-18}}
+  .pin{transform-origin:50% 100%}
+  .endpt{width:18px;height:18px;border-radius:50%;border:3.5px solid #fff;box-shadow:0 3px 10px rgba(31,41,55,.35)}
+  .lbl{position:absolute;left:24px;top:-3px;white-space:nowrap;font:600 12px Inter,sans-serif;padding:2px 7px;border-radius:7px;background:#fff;color:var(--dark);box-shadow:0 2px 8px rgba(31,41,55,.18)}
+  .stopmk{position:relative;width:44px;height:44px}
+  .stopmk .pl{position:absolute;inset:0;border-radius:50%;background:rgba(251,176,52,.45);animation:pulse 1.8s ease-out infinite}
+  .stopmk .core{position:absolute;inset:7px;border-radius:50%;display:grid;place-items:center;border:3px solid #fff;box-shadow:0 4px 12px rgba(31,41,55,.3)}
+  @keyframes pulse{0%{transform:scale(.5);opacity:.9}100%{transform:scale(1.5);opacity:0}}
+  .veh{position:relative;width:38px;height:38px}
+  .veh .core{position:absolute;inset:0;border-radius:50%;background:var(--vc);border:3px solid #fff;display:grid;place-items:center;box-shadow:0 6px 16px rgba(31,41,55,.4)}
+  .veh .ring{position:absolute;inset:-7px;border-radius:50%;border:3px solid var(--vc);opacity:.5;animation:pulse 1.6s ease-out infinite}
+  .chip-map{display:flex;align-items:center;gap:5px;width:max-content;font:600 11px Inter,sans-serif;padding:4px 8px 4px 5px;border-radius:999px;background:#fff;color:var(--dark);border:1.5px solid var(--bc);box-shadow:0 2px 8px rgba(31,41,55,.18)}
+  .kid-badge{display:flex;align-items:center;gap:5px;width:max-content;transform:translate(-50%,-50%);padding:2px 9px 2px 2px;border-radius:999px;background:#fff;border:2px solid var(--kc);font:600 11.5px Inter,sans-serif;color:var(--dark);box-shadow:0 2px 8px rgba(31,41,55,.2)}
+  .kid-badge span{width:20px;height:20px;border-radius:50%;background:var(--kc);color:#fff;display:grid;place-items:center;font-size:11px}
+  .cancel{transform:translate(-50%,-50%);width:max-content;display:flex;align-items:center;gap:5px;font:600 11.5px Inter,sans-serif;padding:5px 9px;border-radius:999px;background:#C00510;color:#fff}
+  .leaflet-popup-content-wrapper{border-radius:14px;box-shadow:0 12px 30px rgba(31,41,55,.25)}
+  .leaflet-popup-content{margin:12px 14px;font:400 13px/1.45 Inter,sans-serif;color:var(--dark)}
+  /* switch */
+  .sw{position:relative;width:46px;height:28px;border-radius:999px;background:#D1D5DB;flex:none;transition:background .2s}
+  .sw::after{content:"";position:absolute;left:3px;top:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .2s}
+  .sw[aria-checked="true"]{background:var(--brand)} .sw[aria-checked="true"]::after{transform:translateX(18px)}
+  /* chat */
+  .msg{max-width:88%;padding:9px 12px;border-radius:16px;font-size:14px;line-height:1.45;overflow-wrap:anywhere}
+  .msg.bot{align-self:flex-start;background:var(--bg);border-bottom-left-radius:5px}
+  .msg.me{align-self:flex-end;background:var(--brand);color:#fff;border-bottom-right-radius:5px}
+  .msg b{font-weight:600}
+  .toast{position:fixed;left:12px;right:12px;top:calc(var(--safe-t) + 128px);z-index:60;transform:translateY(-12px);opacity:0;pointer-events:none;transition:all .35s cubic-bezier(.2,.8,.2,1)}
+  .toast.show{transform:none;opacity:1}
+  .search{position:fixed;inset:0;z-index:70;background:#fff;display:none;flex-direction:column}
+  .search.open{display:flex}
+  .scroll-x{scrollbar-width:none}.scroll-x::-webkit-scrollbar{display:none}
+  @media (prefers-reduced-motion:reduce){ *{transition:none!important;animation:none!important} }
+</style>
+</head>
+<body class="font-sans">
+<div id="map" role="application" aria-label="Rota haritası"></div>
+
+<!-- Üst: yolculuk kartı -->
+<header class="fixed left-3 right-3 z-20" style="top:calc(var(--safe-t) + 10px)">
+  <div class="relative bg-white rounded-2xl shadow-[0_8px_24px_rgba(31,41,55,.14)] pl-3 pr-14 py-1.5">
+    <button id="fFrom" class="w-full flex items-center gap-3 min-h-[44px] text-left" aria-label="Kalkış noktasını değiştir">
+      <span class="w-3 h-3 rounded-full bg-ui-dark ring-4 ring-ui-bg flex-none"></span>
+      <span class="min-w-0"><span class="block text-caption text-ui-muted">Nereden</span><span id="fromTxt" class="block text-title truncate"></span></span>
+    </button>
+    <div class="ml-6 border-t border-gray-100"></div>
+    <button id="fTo" class="w-full flex items-center gap-3 min-h-[44px] text-left" aria-label="Varış noktasını değiştir">
+      <span class="w-3 h-3 rounded-full bg-brand ring-4 ring-pink-50 flex-none"></span>
+      <span class="min-w-0"><span class="block text-caption text-ui-muted">Nereye</span><span id="toTxt" class="block text-title truncate"></span></span>
+    </button>
+    <button id="btnSwap" class="absolute right-2 top-1/2 -translate-y-1/2 w-11 h-11 rounded-xl bg-ui-bg grid place-items-center text-ui-dark" aria-label="Kalkış ve varışı yer değiştir"></button>
+  </div>
+  <div class="flex gap-2 mt-2 scroll-x overflow-x-auto">
+    <button id="chipTime" class="flex-none h-9 px-3 rounded-full bg-white shadow-[0_4px_14px_rgba(31,41,55,.12)] text-caption flex items-center gap-1.5"></button>
+    <button id="chipWx" class="flex-none h-9 px-3 rounded-full bg-white shadow-[0_4px_14px_rgba(31,41,55,.12)] text-caption flex items-center gap-1.5"></button>
+  </div>
+</header>
+
+<!-- Harita düğmesi -->
+<button id="btnFit" class="fixed right-3 z-20 w-11 h-11 rounded-full bg-white shadow-[0_6px_18px_rgba(31,41,55,.18)] grid place-items-center text-ui-dark" style="bottom:calc(var(--sheet) + var(--tabs) + var(--safe-b) + 12px)" aria-label="Rotaya odaklan"></button>
+
+<!-- Alt sayfa -->
+<section id="sheet" class="sheet" aria-label="Rota ayrıntıları">
+  <div class="grab" id="grab" role="button" tabindex="0" aria-label="Paneli büyüt veya küçült"><i></i></div>
+  <div class="sheet-body" id="sheetBody"></div>
+</section>
+
+<nav class="tabs" role="tablist" aria-label="Bölümler">
+  <button class="tab" role="tab" data-tab="rota" aria-selected="true"><span data-ic="metro"></span>Rotalar</button>
+  <button class="tab" role="tab" data-tab="ai" aria-selected="false"><span data-ic="spark"></span>Asistan</button>
+  <button class="tab relative" role="tab" data-tab="cuzdan" aria-selected="false"><span data-ic="card"></span>Cüzdan<span class="dot" id="walletDot" hidden></span></button>
+  <button class="tab" role="tab" data-tab="ayar" aria-selected="false"><span data-ic="sliders"></span>Ayarlar</button>
+</nav>
+
+<!-- Arama ekranı -->
+<div class="search" id="search" role="dialog" aria-label="Yer ara">
+  <div class="flex items-center gap-2 px-3 pb-2 border-b border-gray-100" style="padding-top:calc(var(--safe-t) + 10px)">
+    <button id="sBack" class="w-11 h-11 grid place-items-center rounded-xl text-ui-dark" aria-label="Geri"></button>
+    <input id="sIn" class="flex-1 h-11 px-3 rounded-xl bg-ui-bg text-title outline-none focus:ring-2 focus:ring-istanbulkart-blue" type="search" autocomplete="off" spellcheck="false" aria-label="Durak, iskele veya yer ara">
+  </div>
+  <button id="sGps" class="flex items-center gap-3 px-4 min-h-[56px] text-left border-b border-gray-100" hidden>
+    <span class="w-9 h-9 rounded-full bg-istanbulkart-blue/10 text-istanbulkart-blue grid place-items-center" data-ic="target"></span>
+    <span><span class="block text-title">Mevcut konumum</span><span class="block text-description text-ui-muted">En yakın durağa bağlanır</span></span>
+  </button>
+  <div id="sList" class="flex-1 overflow-y-auto" role="listbox" aria-label="Sonuçlar"></div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"><div class="bg-ui-dark text-white text-body rounded-2xl px-4 py-3 shadow-xl" id="toastIn"></div></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+"use strict";
+const D = /*__IST_PAYLOAD__*/null;
+(function(){
+if(!D || !window.L){ document.body.insertAdjacentHTML("beforeend",'<div style="position:fixed;inset:0;display:grid;place-items:center;padding:24px;background:#fff;z-index:99"><p>İst-Route yüklenemedi. İnternet bağlantısını kontrol edin.</p></div>'); return; }
+
+/*__ENGINE__*/
+/*__ASSISTANT__*/
+
+/* ================= mobil ek simgeler ================= */
+Object.assign(ICO, {
+  card:'<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M3 10h18M7 15h4"/>',
+  sliders:'<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+  back:'<path d="m15 18-6-6 6-6"/>', stop:'<rect x="6" y="6" width="12" height="12" rx="2"/>'
+});
+document.querySelectorAll("[data-ic]").forEach(el => el.innerHTML = svg(el.dataset.ic, 22, 2));
+$("btnSwap").innerHTML = svg("swap", 20, 2.2);
+$("btnFit").innerHTML = svg("target", 20, 2.2);
+$("sBack").innerHTML = svg("back", 22, 2.4);
+
+/* ================= mobil durum ================= */
+const M = {tab:"rota", snap:"half", timeOpen:false, searchFor:null, profOpen:false};
+state.kat = {lokanta:true, spor:false, muze:false, kopru:true, rail:false};
+// Tam modda panel arama kartının hemen altında durur (kalkış/varış her zaman görünür)
+const SNAP = () => {
+  const tabs = $("sheet").getBoundingClientRect().bottom || innerHeight - 64;
+  const top = document.querySelector("header > div").getBoundingClientRect().bottom + 8;
+  return {peek:176, half:Math.round(innerHeight * .46), full:Math.max(300, Math.round(tabs - top))};
+};
+const ROUTE_COL = {kirmizi:"#E30613", mavi:"#00A3E0", sari:"#FBB034"};
+const RNAME = {kirmizi:"Kırmızı", mavi:"Mavi", sari:"Sarı"};
+const toast = html => { $("toastIn").innerHTML = html; $("toast").classList.add("show"); clearTimeout(toast._t); toast._t = setTimeout(() => $("toast").classList.remove("show"), 3000); };
+const announce = toast;
+const legTarget = l => { const m = /→\s*([^(]+)/.exec(l.ad || ""); return m ? m[1].trim() : ""; };
+const iskele = l => { const t = (legTarget(l) || "").replace(/\s*İskelesi$/i, ""); return t ? `${t} iskelesine` : "iskeleye"; };
+const iskeleDe = l => { const t = (legTarget(l) || "").replace(/\s*İskelesi$/i, ""); return t ? `${t} iskelesinde` : "iskelede"; };
+
+/* ================= harita ================= */
+const map = L.map("map", {zoomControl:false, attributionControl:true, zoomSnap:.25, tap:true}).setView([41.02, 29.0], 12);
+L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}", {maxZoom:16, maxNativeZoom:16,
+  attribution:"&copy; Esri · İBB GTFS & Açık Veri · ücret/senaryo: simülasyon"}).addTo(map);
+map.createPane("labels"); map.getPane("labels").style.zIndex = 390; map.getPane("labels").style.pointerEvents = "none";
+L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}", {maxZoom:16, maxNativeZoom:16, pane:"labels"}).addTo(map);
+const G = {rail:L.layerGroup().addTo(map), alt:L.layerGroup().addTo(map), kids:L.layerGroup().addTo(map), route:L.layerGroup().addTo(map),
+  pts:L.layerGroup().addTo(map), pois:L.layerGroup().addTo(map), sim:L.layerGroup().addTo(map)};
+const routePts = r => { const a = []; r.legs.forEach(l => l.g && D.geoms[l.g] && a.push(...D.geoms[l.g])); return a; };
+const div = (html, size, anchor) => L.divIcon({className:"", html, iconSize:size, iconAnchor:anchor});
+
+function poiIcon(p){
+  const k = KAT[p.kat], g = p.kat === "lokanta" ? "fork" : p.kat === "spor" ? "dumbbell" : "museum";
+  if(p.kat === "muze") return div(`<div style="width:22px;height:22px;border-radius:50%;background:${k.renk};border:2px solid #fff;display:grid;place-items:center;box-shadow:0 2px 6px rgba(0,0,0,.3)">${svg(g,11,2.4,"#fff")}</div>`, [22,22], [11,11]);
+  return div(`<div class="pin" style="position:relative;width:26px;height:33px"><svg width="26" height="33" viewBox="0 0 32 40"><path d="M16 39c-1.2-5-12-12.6-12-23.2A12 12 0 0 1 28 15.8C28 26.4 17.2 34 16 39z" fill="${k.renk}" stroke="#fff" stroke-width="2.4"/></svg><div style="position:absolute;left:6px;top:5px">${svg(g,14,2.4,"#fff")}</div></div>`, [26,33], [13,32]);
+}
+function poiPopup(p){
+  return `<div style="font-weight:600;font-size:14px;margin-bottom:2px">${esc(p.isim)}</div><div style="color:#6B7280">${esc(KAT[p.kat].kisa)} · ${esc(p.ilce)}</div>
+    <div style="margin-top:6px">${esc(p.saat_metin)} · ${esc(p.gunler)}</div><div style="margin-top:4px;color:#C1125A;font-weight:600">+${p.odul_puani} İBB Puanı</div>`;
+}
+function drawMap(fit){
+  const s = step(), act = aktifRota();
+  map.closePopup();
+  Object.entries(G).forEach(([k, g]) => { if(k !== "sim") g.clearLayers(); });
+  if(state.kat.rail && D.rail) D.rail.hatlar.forEach(h => { const ok = !/inşaat/i.test(h.asama || "");
+    h.parcalar.forEach(p => L.polyline(p, {color:"#4B5563", weight:2, opacity:ok ? .45 : .25, dashArray:ok ? null : "4 6", interactive:false}).addTo(G.rail)); });
+  if(!act) return;
+  s.rotalar.filter(r => r.id !== act.id && !r.iptal).forEach(r => r.legs.forEach(l => { const g = l.g && D.geoms[l.g]; if(!g) return;
+    L.polyline(g, {color:ROUTE_COL[r.renk], weight:5, opacity:.3, dashArray:l.mod === "yurume" ? "1 8" : null}).on("click", () => selectRoute(r.id)).addTo(G.alt); }));
+  const c = ROUTE_COL[act.renk];
+  act.legs.forEach(l => { const g = l.g && D.geoms[l.g]; if(!g) return;
+    const walk = l.mod === "yurume", sea = l.mod === "vapur";
+    L.polyline(g, {color:"#fff", weight:walk ? 8 : 11, opacity:.95, interactive:false}).addTo(G.route);
+    L.polyline(g, {color:c, weight:walk ? 4.5 : 6.5, lineCap:sea ? "butt" : "round", dashArray:walk ? "0.1 9" : sea ? "12 8" : null, interactive:false}).addTo(G.route);
+    if(!walk && !sea) L.polyline(g, {color:"#fff", weight:2.4, className:"flow", interactive:false}).addTo(G.route); });
+  act.legs.forEach((l, i) => { if(!i || !l.g || !D.geoms[l.g] || act.legs[i-1].mod === "mola") return;
+    L.marker(D.geoms[l.g][0], {icon:div(`<div style="width:12px;height:12px;border-radius:50%;background:#fff;border:3px solid ${c}"></div>`, [12,12], [6,6]), interactive:false, keyboard:false}).addTo(G.pts); });
+  const end = (pt, col, t) => L.marker(pt, {keyboard:false, zIndexOffset:900, icon:div(`<div class="endpt" style="background:${col}"></div><div class="lbl">${esc(t)}</div>`, [18,18], [9,9])}).addTo(G.pts);
+  end(state.trip.from.pt, "#1F2937", state.trip.from.ad); end(state.trip.to.pt, "#C1125A", state.trip.to.ad);
+  if(act.mola_poi && POI_BY_ID[act.mola_poi]){ const p = POI_BY_ID[act.mola_poi], g = p.kat === "lokanta" ? "fork" : p.kat === "spor" ? "dumbbell" : "museum";
+    L.marker([p.lat, p.lon], {zIndexOffset:1000, keyboard:false, icon:div(`<div class="stopmk"><span class="pl"></span><span class="core" style="background:${KAT[p.kat].renk}">${svg(g,15,2.4,"#fff")}</span></div>`, [44,44], [22,22])}).bindPopup(poiPopup(p)).addTo(G.pts); }
+  D.pois.forEach(p => { if(!state.kat[p.kat] || p.id === act.mola_poi) return;
+    L.marker([p.lat, p.lon], {icon:poiIcon(p), keyboard:false}).bindPopup(poiPopup(p)).addTo(G.pois); });
+  if(state.kat.kopru) D.bridges.forEach(b => { const v = s.trafik[b.id], bc = v < 35 ? "#E30613" : v < 45 ? "#FBB034" : "#12A150";
+    L.marker(b.pt, {keyboard:false, interactive:false, icon:div(`<div class="chip-map" style="--bc:${bc}"><span style="width:8px;height:8px;border-radius:50%;background:${bc}"></span>${b.id === "b1" ? "1." : "2."} Köprü ${v} km/s</div>`, [0,0], [0,12])}).addTo(G.pts); });
+  if(s.kriz_aktif && state.kriz === "lodos") L.marker([41.015, 29.0], {interactive:false, icon:div(`<div class="cancel">${svg("wind",13,2.4,"#fff")} Vapur seferleri iptal</div>`, [0,0], [0,0])}).addTo(G.pts);
+  if(state.mod === "aile") state.aile.uyeler.forEach(u => { const k = kidRoute(u); if(!k) return; let best = null, bl = -1;
+    k.legs.forEach(l => { const g = l.g && D.geoms[l.g]; if(!g) return;
+      L.polyline(g, {color:u.renk, weight:l.mod === "yurume" ? 3 : 4, opacity:.95, dashArray:l.mod === "yurume" ? "0.1 7" : "8 6", interactive:false}).addTo(G.kids);
+      if(l.mod !== "yurume" && l.dk > bl){ bl = l.dk; best = g; } });
+    L.marker(best ? best[Math.floor(best.length / 2)] : u.hedef.pt, {interactive:false, icon:div(`<div class="kid-badge" style="--kc:${u.renk}"><span>${esc(u.ad[0])}</span>${esc(u.ad)} · ${k.sure} dk</div>`, [0,0], [0,0])}).addTo(G.kids); });
+  if(fit) fitRoute();
+}
+let pendingFit = false;
+function fitRoute(){
+  const r = aktifRota(); if(!r) return;
+  const pts = routePts(r); if(!pts.length) return;
+  // Streamlit bileşeninde iframe ilk anda 0 boyutlu olabilir: boyut gelince odaklan
+  const sz = map.getSize(); if(!sz.x || !sz.y){ pendingFit = true; return; }
+  pendingFit = false;
+  const top = $("chipTime").getBoundingClientRect().bottom + 16;
+  const bot = innerHeight - $("sheet").getBoundingClientRect().top + 24;
+  map.flyToBounds(L.latLngBounds(pts), {paddingTopLeft:[28, top], paddingBottomRight:[28, bot], duration:.7, maxZoom:15});
+}
+
+/* ================= alt sayfa ================= */
+function setSnap(snap, refit = true){
+  M.snap = snap;
+  const h = SNAP()[snap];
+  document.documentElement.style.setProperty("--sheet", h + "px");
+  $("grab").setAttribute("aria-label", snap === "full" ? "Paneli küçült" : "Paneli büyüt");
+  $("btnFit").hidden = snap === "full";
+  if(refit && M.tab === "rota") setTimeout(fitRoute, 340);
+}
+(() => {   // sürükle-bırak; kesilen dokunuşlar (pointercancel) temizlenir
+  const g = $("grab"), sh = $("sheet"); let y0 = 0, h0 = 0, id = null, moved = false;
+  const end = e => { if(id === null) return; sh.classList.remove("dragging");
+    const h = sh.getBoundingClientRect().height, S = SNAP();
+    if(!moved){ setSnap(M.snap === "full" ? "half" : M.snap === "half" ? "full" : "half"); }
+    else setSnap(Object.keys(S).reduce((a, k) => Math.abs(S[k] - h) < Math.abs(S[a] - h) ? k : a, "half"));
+    try{ g.releasePointerCapture(id); }catch(_){} id = null; };
+  g.addEventListener("pointerdown", e => { id = e.pointerId; y0 = e.clientY; h0 = sh.getBoundingClientRect().height; moved = false; g.setPointerCapture(id); sh.classList.add("dragging"); });
+  g.addEventListener("pointermove", e => { if(e.pointerId !== id) return; const dy = y0 - e.clientY; if(Math.abs(dy) > 6) moved = true;
+    const S = SNAP(); document.documentElement.style.setProperty("--sheet", Math.max(S.peek - 40, Math.min(S.full, h0 + dy)) + "px"); });
+  g.addEventListener("pointerup", end); g.addEventListener("pointercancel", end); g.addEventListener("lostpointercapture", end);
+  g.addEventListener("keydown", e => { if(e.key === "Enter" || e.key === " "){ e.preventDefault(); setSnap(M.snap === "full" ? "half" : "full"); } });
+})();
+
+/* ================= üst kısım ================= */
+function renderTop(){
+  $("fromTxt").textContent = state.trip.from.ad; $("toTxt").textContent = state.trip.to.ad;
+  const pk = inPeak(toMin(state.saat));
+  $("chipTime").innerHTML = `${svg("clock",15,2.2)} ${state.zamanMod === "varis" ? `Varış ${fmt(state.hedef)} · ${sa(state.saat)} çık` : state.saat} <span style="color:${pk ? "#C00510" : "#0B7A3B"}">· ${pk ? "Zirve" : "Sakin"}</span>`;
+  const w = WX[state.kriz], s = step();
+  const krit = state.kriz !== "normal" && s.kriz_aktif;
+  $("chipWx").innerHTML = `${svg(w.ic,15,2.2)} ${w.t}°C · <span style="color:${krit ? "#C00510" : "#1F2937"}">${krit ? (state.kriz === "lodos" ? "Lodos uyarısı" : "Derbi yoğunluğu") : s.trafik.durum}</span>`;
+  $("walletDot").hidden = !(state.mod === "aile" && state.aile.uyeler.some(u => u.bakiye < state.aile.esik));
+}
+
+/* ================= sekmeler ================= */
+const legIcon = l => l.mod === "mola" ? "mola" : ICO[l.mod] ? l.mod : "yurume";
+function stepsHTML(r, live){
+  const c = ROUTE_COL[r.renk];
+  return r.legs.filter(l => l.dk > 0).map((l, i) => {
+    const walk = l.mod === "yurume", st = live ? (i < sim.legIdx ? "done" : i === sim.legIdx ? "now" : "") : "";
+    return `<div class="tl ${st}" style="--c:${c};--lc:${walk ? "#E5E7EB" : c}">
+      <span class="ic ${walk ? "walk" : l.mod === "mola" ? "mola" : ""}">${svg(legIcon(l),16,2.2)}</span>
+      <div class="min-w-0 flex-1 pt-1"><div class="text-body">${esc(legStep(l).replace(/ \(\d+ dk(, bekleme dahil)?\)$/, ""))}</div>
+      <div class="text-caption text-ui-muted">${l.dk} dk${/bekleme dahil/.test(l.ad) ? " · bekleme dahil" : ""}</div></div></div>`;
+  }).join("");
+}
+function routeOpt(r, on){
+  const c = ROUTE_COL[r.renk], arr = varis(r);
+  return `<button class="opt" role="radio" aria-checked="${on}" ${r.iptal ? 'aria-disabled="true"' : ""} data-id="${r.id}" style="--c:${c}"
+      aria-label="${esc(`${RNAME[r.renk]} rota, ${r.tip}, ${r.sure} dakika${r.mola ? ` artı ${r.mola} dakika mola` : ""}, varış ${arr}${r.iptal ? ", kullanılamıyor" : ""}`)}">
+    <span class="bar"></span>
+    <span class="flex-1 min-w-0">
+      <span class="flex items-baseline gap-2"><span class="text-heading" style="font-weight:600">${r.ikon} ${r.sure} dk</span>${r.mola ? `<span class="text-caption" style="color:#7A4F00">+ ${r.mola} dk mola</span>` : ""}
+        <span class="ml-auto text-caption text-ui-muted">${r.iptal ? "—" : Math.round(r.skor) + "/100"}</span></span>
+      <span class="block text-body truncate">${esc(r.ozet)}</span>
+      <span class="block text-description text-ui-muted truncate">Varış <b class="text-ui-dark" style="font-weight:600">${arr}</b> · ${esc(r.tip)}${r.uyari ? ` · <span style="color:#C00510">${esc(r.uyari)}</span>` : ""}</span>
+      <span class="flex flex-wrap gap-1.5 mt-1.5">${r.oneri && !r.iptal ? `<span class="text-caption px-2 py-0.5 rounded-full bg-brand text-white">İst-Route önerisi</span>` : ""}${r.puan ? `<span class="text-caption px-2 py-0.5 rounded-full" style="background:#FEF3C7;color:#7A4F00">+${r.puan} İBB Puanı</span>` : ""}${r.iptal ? `<span class="text-caption px-2 py-0.5 rounded-full bg-red-50 text-red-700">Sefer iptal</span>` : ""}</span>
+    </span></button>`;
+}
+function timePanel(){
+  const vm = state.zamanMod === "varis", lo = vm ? 420 : toMin(SAATLER[0]), hi = vm ? 1440 : toMin(SAATLER[SAATLER.length - 1]);
+  const val = vm ? (state.hedef - lo) / 30 : SAATLER.indexOf(state.saat), busy = sim.on && !sim.done;
+  return `<div class="mx-4 mt-3 p-3 rounded-2xl bg-ui-bg">
+    <div class="grid grid-cols-2 gap-1 p-1 rounded-xl bg-white" role="group" aria-label="Zaman modu">
+      <button data-zm="kalkis" class="h-10 rounded-lg text-caption ${vm ? "text-ui-muted" : "bg-ui-dark text-white"}" aria-pressed="${!vm}">Kalkış saati</button>
+      <button data-zm="varis" class="h-10 rounded-lg text-caption ${vm ? "bg-ui-dark text-white" : "text-ui-muted"}" aria-pressed="${vm}">Varış saati</button></div>
+    <div class="flex items-baseline justify-between mt-3"><span class="text-description text-ui-muted">${vm ? "Orada olmam gereken saat" : "Kalkış"}</span><span class="text-heading" style="font-weight:600" id="tVal">${vm ? fmt(state.hedef) : state.saat}</span></div>
+    <input id="tSlider" type="range" min="0" max="${(hi - lo) / 30}" value="${val}" class="w-full mt-2 accent-[#C1125A] h-8" aria-label="${vm ? "Hedef varış saati" : "Kalkış saati"}" ${busy ? "disabled" : ""}>
+    ${vm ? `<p class="text-description text-ui-muted">Önerilen rota için <b class="text-ui-dark" style="font-weight:600">${sa(state.saat)}</b> çıkman yeterli.</p>` :
+      `<div class="flex gap-2 mt-1 scroll-x overflow-x-auto">${PRESETS.map(([h, l]) => `<button data-h="${h}" class="flex-none h-9 px-3 rounded-full text-caption ${h === state.saat ? "bg-ui-dark text-white" : "bg-white text-ui-dark"}" ${busy ? "disabled" : ""}>${l} · ${h}</button>`).join("")}</div>`}
+    <button id="tNow" class="mt-3 h-10 px-4 rounded-xl bg-white text-caption text-ui-dark" ${busy ? "disabled" : ""}>Hemen çık</button>
+  </div>`;
+}
+function tabRota(){
+  const s = step(), act = aktifRota();
+  if(!s.rotalar.length || !act) return `<div class="p-6 text-body text-ui-muted">Bu iki nokta arasında ağda rota bulunamadı. Farklı bir kalkış ya da varış dene.</div>`;
+  if(sim.on && !sim.done) return simPanel(act);
+  const c = ROUTE_COL[act.renk];
+  return `${M.timeOpen ? timePanel() : ""}
+    <div class="px-4 pt-2 pb-2 flex items-baseline justify-between"><h2 class="text-title" style="font-weight:600">Sana uygun 3 rota</h2>
+      <span class="text-caption text-ui-muted">${D.net.gtfs ? "İBB GTFS · Metrobüs tahminî" : "tahminî ağ"}</span></div>
+    <div class="px-4 flex flex-col gap-2.5" role="radiogroup" aria-label="Rota seçenekleri">${s.rotalar.map(r => routeOpt(r, r.id === act.id)).join("")}</div>
+    <div class="px-4 mt-5"><h3 class="text-title mb-3" style="font-weight:600">Adım adım</h3>${stepsHTML(act, false)}</div>
+    <div class="px-4 mt-4 text-description text-ui-muted">Aynı saatte araçla ${s.trafik.arac_dk} dk${act.arac_fark > 0 ? ` · bu rota ${act.arac_fark} dk daha hızlı` : ""}. ${act.puan ? `Kazanılan İBB Puanı yalnızca ${KAPALI.join(", ")}'te harcanır.` : ""}</div>
+    <div class="sticky bottom-0 z-10 bg-white px-4 pt-3 pb-4 mt-3 border-t border-gray-100">
+      <button id="btnStart" class="w-full h-14 rounded-2xl bg-brand text-white text-title flex items-center justify-center gap-2 shadow-[0_8px_20px_rgba(193,18,90,.35)]" ${act.iptal ? "disabled" : ""}>
+        ${svg("play",18,2.4,"currentColor","currentColor")} Yolculuğu başlat · ${varis(act)}</button></div>`;
+}
+function simPanel(act){
+  const seg = sim.segs[Math.max(0, sim.legIdx)] || sim.segs[0], c = ROUTE_COL[act.renk];
+  const kalan = seg ? Math.max(0, Math.ceil(seg.t1 - sim.t)) : 0, f = sim.total ? sim.t / sim.total : 0;
+  return `<div class="px-4 pt-1">
+    <div class="flex items-center gap-3"><span class="w-12 h-12 rounded-2xl grid place-items-center text-white" style="background:${seg && seg.l.mod === "mola" ? "#FBB034" : c}" id="simIc">${svg(seg ? legIcon(seg.l) : "yurume",22,2.2)}</span>
+      <div class="flex-1 min-w-0"><div class="text-title truncate" id="simNow">${seg ? esc(legStep(seg.l).replace(/ \(\d+ dk.*\)$/, "")) : ""}</div>
+      <div class="text-description text-ui-muted" id="simSub">${kalan} dk · varış ${varis(act)}</div></div>
+      <div class="text-right"><div class="text-heading" style="font-weight:600" id="simClock">${fmt(toMin(state.saat) + sim.t)}</div><div class="text-caption text-ui-muted">${state.speed}× hız</div></div></div>
+    ${sim.locked ? `<div class="mt-3 p-3 rounded-xl text-description flex gap-2" style="background:#E0F2FE;color:#075985">${svg("lock",16,2.4)} Açık denizde rota değişmez; ${esc(iskeleDe(seg.l))} değiştirebilirsin.</div>` : ""}
+    <div class="mt-3 h-2 rounded-full bg-ui-bg overflow-hidden"><div id="simBar" class="h-full rounded-full" style="width:${(f * 100).toFixed(1)}%;background:${c}"></div></div>
+    <div class="grid grid-cols-3 gap-2 mt-3">
+      <button id="simPlay" class="h-12 rounded-xl bg-ui-dark text-white text-caption flex items-center justify-center gap-1.5">${svg(sim.playing ? "pause" : "play",16,2.4,"currentColor","currentColor")} ${sim.playing ? "Duraklat" : "Devam"}</button>
+      <button id="simSpeed" class="h-12 rounded-xl bg-ui-bg text-caption">Hız ${state.speed}×</button>
+      <button id="simStop" class="h-12 rounded-xl bg-ui-bg text-caption flex items-center justify-center gap-1.5">${svg("stop",15,2.4)} Bitir</button></div>
+    <div class="mt-5">${stepsHTML(act, true)}</div></div>`;
+}
+function tabAi(){
+  const risk = riskOf(ai.profile), hi = risk != null && risk >= RM.threshold;
+  if(!ai.msgs.length) ai.msgs.push({id:"a0", role:"bot", text:`Merhaba! Rotanı, trafiği, molaları ve bakiyeni uygulamadaki gerçek veriyle yanıtlarım. Seçili yolculuk: **${state.trip.from.ad} → ${state.trip.to.ad}**, ${state.saat}.`});
+  const opt = (f, v) => RM.classes[f].map(x => `<option ${x === v ? "selected" : ""}>${esc(x)}</option>`).join("");
+  return `<div class="flex flex-col h-full">
+    <div class="px-4 pb-2 flex items-center gap-2 border-b border-gray-100">
+      <h2 class="text-title" style="font-weight:600">İst-Route Asistanı</h2>
+      ${risk != null ? `<span class="ml-auto text-caption px-2 py-1 rounded-full ${hi ? "bg-red-50 text-red-700" : "bg-green-50 text-green-800"}">Bakiye riski %${Math.round(risk * 100)}</span>
+      <button id="profBtn" class="text-caption text-istanbulkart-blue h-9 px-1" aria-expanded="${M.profOpen}">Profilim</button>` : ""}</div>
+    ${M.profOpen && RM ? `<div class="px-4 py-3 bg-ui-bg grid gap-2 text-description">
+      <label class="flex items-center justify-between gap-3">Yaş grubu<select data-pf="yas_grubu" class="h-9 rounded-lg px-2 bg-white max-w-[55%]">${opt("yas_grubu", ai.profile.yas_grubu)}</select></label>
+      <label class="flex items-center justify-between gap-3">Ortalama harcama (₺)<input data-pf="h_ort_harcama" type="number" inputmode="numeric" value="${ai.profile.h_ort_harcama}" class="h-9 w-28 rounded-lg px-2 bg-white"></label>
+      <label class="flex items-center justify-between gap-3">Aylık aktif gün<input data-pf="h_aktif_gun" type="number" inputmode="numeric" value="${ai.profile.h_aktif_gun}" class="h-9 w-28 rounded-lg px-2 bg-white"></label>
+      <p class="text-caption text-ui-muted">PyTorch modeli · doğruluk %${Math.round(RM.metrics.accuracy * 100)}, ROC-AUC ${RM.metrics.roc_auc.toFixed(2)}</p></div>` : ""}
+    <div id="chat" class="flex-1 min-h-0 overflow-y-auto px-4 py-3 flex flex-col gap-2.5" aria-live="polite">${ai.msgs.map(m =>
+      `<div class="msg ${m.role}">${md(m.text)}${m.act ? `<div><button data-act="${m.id}" class="mt-2 h-9 px-3 rounded-lg bg-white text-caption text-ui-dark">${esc(m.act.lbl)}</button></div>` : ""}</div>`).join("")}</div>
+    <div class="flex gap-2 px-4 py-2 scroll-x overflow-x-auto">${["Nasıl giderim?", "Trafiğe girmeden nasıl giderim?", "Mola verip puan kazanabilir miyim?", "Bakiyem yeter mi?", "Bugün bir uyarı var mı?", "Çocuklarım nerede?"]
+      .map(q => `<button data-q="${esc(q)}" class="flex-none h-9 px-3 rounded-full bg-ui-bg text-caption">${esc(q)}</button>`).join("")}</div>
+    <form id="aiForm" class="flex gap-2 px-4 pb-3 pt-1"><input id="aiIn" class="flex-1 h-12 rounded-xl bg-ui-bg px-3 text-body outline-none focus:ring-2 focus:ring-istanbulkart-blue" placeholder="Örn. Taksim'den Kadıköy'e nasıl giderim?" autocomplete="off" aria-label="Asistana sor">
+      <button class="w-12 h-12 rounded-xl bg-brand text-white grid place-items-center" aria-label="Gönder">${svg("play",16,2.4,"currentColor","currentColor")}</button></form></div>`;
+}
+function tabCuzdan(){
+  const a = state.aile, aile = state.mod === "aile";
+  return `<div class="px-4 pb-6">
+    <div class="rounded-3xl p-5 text-white relative overflow-hidden" style="background:linear-gradient(135deg,#0A7EB9,#00CCFF)">
+      <div class="text-caption opacity-90">İSTANBULKART · ${aile ? "ANA KART" : "KARTIM"}</div>
+      <div class="text-[28px] leading-9 mt-4" style="font-weight:700">${tl(aile ? a.master.bakiye : state.bakiye)}</div>
+      <div class="text-description opacity-90 mt-1">${aile ? esc(a.master.ad) + " · ebeveyn" : "Kişisel kart"} · ${state.puan} İBB Puanı</div></div>
+    <div class="mt-3 p-3 rounded-2xl bg-ui-bg flex gap-3"><span class="w-9 h-9 rounded-xl bg-ui-dark text-white grid place-items-center flex-none">${svg("lock",16,2.4)}</span>
+      <p class="text-description text-ui-muted"><b class="text-ui-dark" style="font-weight:600">Kapalı Çevrim:</b> İBB Puanı nakde çevrilmez; yalnızca ${KAPALI.join(", ")}'te harcanır.</p></div>
+    <div class="mt-4 flex items-center justify-between min-h-[52px]"><div><div class="text-title">Aile Modu</div><div class="text-description text-ui-muted">Çocukların kartlarını tek yerden yönet</div></div>
+      <button class="sw" role="switch" aria-checked="${aile}" id="swAile" aria-label="Aile Modu"></button></div>
+    ${aile ? `<div class="mt-2 flex flex-col gap-2.5">${a.uyeler.map(u => { const low = u.bakiye < a.esik, k = kidRoute(u);
+      return `<div class="p-3 rounded-2xl border ${low ? "border-red-200 bg-red-50/40" : "border-gray-200"}">
+        <div class="flex items-center gap-3"><span class="w-10 h-10 rounded-full grid place-items-center text-white text-title" style="background:${u.renk}">${esc(u.ad[0])}</span>
+          <div class="flex-1 min-w-0"><div class="text-title">${esc(u.ad)} <span class="text-caption text-ui-muted">${esc(u.rol)}</span></div>
+          <div class="text-description ${low ? "text-red-700" : "text-ui-muted"}">${tl(u.bakiye)}${low ? " · düşük bakiye" : ""}</div></div>
+          <button class="sw" role="switch" aria-checked="${u.oto}" data-oto="${u.id}" aria-label="${esc(u.ad)} otomatik yükleme"></button></div>
+        <div class="text-caption text-ui-muted mt-1 text-right">Otomatik yükleme</div>
+        <label class="flex items-center gap-2 mt-2 text-description"><span class="w-2.5 h-2.5 rounded-full" style="background:${u.renk}"></span>Hedef
+          <select data-hedef="${u.id}" class="flex-1 min-w-0 h-10 rounded-lg px-2 bg-ui-bg">${DURAKLAR.map(d => `<option ${d.ad === u.hedef.ad ? "selected" : ""}>${esc(d.ad)}</option>`).join("")}</select>
+          <span class="text-ui-muted">${k ? k.sure + " dk" : "—"}</span></label>
+        <button data-trip="${u.id}" class="mt-2 w-full h-10 rounded-xl bg-ui-bg text-caption">Biniş simüle et (${tl(UCRET.ogrenci)})</button></div>`; }).join("")}</div>
+      <p class="text-description text-ui-muted mt-3">Kart ${tl(a.esik)} altına düşünce ana karttan ${tl(a.yukleme)} otomatik yüklenir (temsilî tarife). Çocukların rotaları haritada kendi renkleriyle çizilir.</p>
+      <div class="mt-3 text-caption text-ui-muted">Simülasyonda yolculuk eden</div>
+      <div class="flex gap-2 mt-1.5">${[{id:"ben", ad:"Ben"}, ...a.uyeler].map(u => `<button data-yolcu="${u.id}" class="h-10 px-4 rounded-full text-caption ${a.yolcu === u.id ? "bg-ui-dark text-white" : "bg-ui-bg"}">${esc(u.ad)}</button>`).join("")}</div>` : ""}
+  </div>`;
+}
+function tabAyar(){
+  const lay = [["lokanta","Kent Lokantaları"],["spor","Spor Tesisleri"],["muze","Müzeler"],["kopru","Köprü trafiği"],["rail","Raylı sistem ağı"]];
+  const k = D.meta.krizler[state.kriz], s = step();
+  return `<div class="px-4 pb-6">
+    <h2 class="text-title" style="font-weight:600">Demo senaryosu</h2>
+    <p class="text-description text-ui-muted">${esc(k.baslik)}: ${esc(k.metin)}${state.kriz === "mac" && !s.kriz_aktif ? ` ${state.saat} kalkışında etkilenmiyor.` : ""}</p>
+    <div class="grid grid-cols-3 gap-1 p-1 mt-2 rounded-xl bg-ui-bg" role="group" aria-label="Senaryo">${[["normal","Normal"],["lodos","Lodos"],["mac","Derbi"]].map(([v, l]) =>
+      `<button data-kriz="${v}" class="h-10 rounded-lg text-caption ${state.kriz === v ? "bg-white shadow text-ui-dark" : "text-ui-muted"}" aria-pressed="${state.kriz === v}">${l}</button>`).join("")}</div>
+    <h2 class="text-title mt-6" style="font-weight:600">Harita katmanları</h2>
+    <div class="mt-1 divide-y divide-gray-100">${lay.filter(([k]) => k !== "rail" || D.rail).map(([k, l]) => `<div class="flex items-center justify-between min-h-[52px]">
+      <span class="text-body">${l}${KAT_SAY[k] ? ` <span class="text-ui-light">${KAT_SAY[k]}</span>` : ""}</span><button class="sw" role="switch" aria-checked="${state.kat[k]}" data-kat="${k}" aria-label="${l}"></button></div>`).join("")}</div>
+    <h2 class="text-title mt-6" style="font-weight:600">Veri</h2>
+    <p class="text-description text-ui-muted mt-1">Rotalar İBB GTFS (raylı ve vapur) sefer verisinden; Metrobüs süreleri tahminî. Köprü hızları: ${esc(D.trafik_kaynak || "simülasyon")}. Kent Lokantası, spor tesisi ve müze konumları İBB açık verisinden. Ücretler, hava ve senaryolar simülasyondur.</p>
+    <p class="text-description text-ui-muted mt-3">İst-Route bağımsız bir datathon prototipidir; İBB'nin resmî uygulaması değildir.</p>
+  </div>`;
+}
+function renderSheet(){
+  const b = $("sheetBody"), keepScroll = M.tab !== "ai" ? b.scrollTop : 0;
+  b.innerHTML = M.tab === "rota" ? tabRota() : M.tab === "ai" ? tabAi() : M.tab === "cuzdan" ? tabCuzdan() : tabAyar();
+  b.style.overflowY = M.tab === "ai" ? "hidden" : "auto";
+  if(M.tab === "ai"){ const ch = $("chat"); if(ch) ch.scrollTop = ch.scrollHeight; } else b.scrollTop = keepScroll;
+}
+function render(opts = {}){
+  renderTop(); renderSheet(); drawMap(!!opts.forceFocus);
+}
+
+/* ================= etkileşim ================= */
+function selectRoute(id){
+  const r = step().rotalar.find(x => x.id === id); if(!r) return;
+  if(r.iptal){ toast(esc(r.uyari || "Bu rota şu an kullanılamıyor")); return; }
+  if(sim.on && !sim.done && sim.locked){ toast("Açık denizde rota değişmez; iskelede değiştirebilirsin."); return; }
+  if(sim.on) simStop();
+  state.aktif = id; render({forceFocus:true});
+}
+function setSaat(h){ if(sim.on && !sim.done) return; state.saat = h; render(); }
+function hemenCik(){
+  const d = new Date(); let s = Math.ceil((d.getHours() * 60 + d.getMinutes()) / 30) * 30;
+  const clip = s < 360 || s > 1410; s = Math.min(1410, Math.max(360, s));
+  state.zamanMod = "kalkis"; setSaat(fmt(s));
+  toast(`Kalkış ${fmt(s)}.${clip ? " Simülasyon 06:00–23:30 arasını kapsar." : ""}`);
+}
+Object.assign(hooks, {
+  onTripChanged(){ if(sim.on) simStop(); },
+  render, setSaat, hemenCik,
+  setAile(){ state.mod = "aile"; render(); }
+});
+
+$("sheetBody").addEventListener("click", e => {
+  const t = e.target;
+  const opt = t.closest(".opt"); if(opt){ selectRoute(opt.dataset.id); return; }
+  if(t.closest("#btnStart")){ simStart(); return; }
+  if(t.closest("#simPlay")){ simToggle(); return; }
+  if(t.closest("#simSpeed")){ state.speed = SPEEDS[(SPEEDS.indexOf(state.speed) + 1) % SPEEDS.length]; renderSheet(); return; }
+  if(t.closest("#simStop")){ simStop(); render(); return; }
+  const zm = t.closest("[data-zm]"); if(zm){ state.zamanMod = zm.dataset.zm; if(state.zamanMod === "varis"){ const r = aktifRota(); state.hedef = Math.min(1440, Math.ceil((toMin(state.saat) + r.sure + r.mola) / 30) * 30); } render(); return; }
+  const h = t.closest("[data-h]"); if(h && !h.disabled){ setSaat(h.dataset.h); return; }
+  if(t.closest("#tNow")){ hemenCik(); return; }
+  if(t.closest("#profBtn")){ M.profOpen = !M.profOpen; renderSheet(); return; }
+  const q = t.closest("[data-q]"); if(q){ aiAskM(q.dataset.q); return; }
+  const act = t.closest("[data-act]"); if(act){ const m = ai.msgs.find(x => x.id === act.dataset.act); if(m && m.act){ m.act.fn(); m.act = null; renderSheet(); } return; }
+  if(t.closest("#swAile")){ state.mod = state.mod === "aile" ? "bireysel" : "aile"; render(); return; }
+  const oto = t.closest("[data-oto]"); if(oto){ const u = state.aile.uyeler.find(x => x.id === oto.dataset.oto); u.oto = !u.oto; renderSheet(); return; }
+  const tr = t.closest("[data-trip]"); if(tr){ kidTrip(tr.dataset.trip); return; }
+  const y = t.closest("[data-yolcu]"); if(y){ state.aile.yolcu = y.dataset.yolcu; renderSheet(); return; }
+  const kr = t.closest("[data-kriz]"); if(kr){ if(sim.on) simStop(); state.kriz = kr.dataset.kriz; render({forceFocus:true}); if(state.kriz !== "normal") toast(esc(D.meta.krizler[state.kriz].baslik) + " (simülasyon)"); return; }
+  const ka = t.closest("[data-kat]"); if(ka){ state.kat[ka.dataset.kat] = !state.kat[ka.dataset.kat]; renderSheet(); drawMap(false); return; }
+});
+$("sheetBody").addEventListener("input", e => {
+  if(e.target.id !== "tSlider") return;
+  const v = +e.target.value;
+  if(state.zamanMod === "varis"){
+    state.hedef = 420 + v * 30; $("tVal").textContent = fmt(state.hedef);
+    const h = cikisBul(state.hedef); if(h){ state.saat = h; renderTop(); drawMap(false); }
+  } else { state.saat = SAATLER[v]; $("tVal").textContent = state.saat; renderTop(); drawMap(false); }
+});
+$("sheetBody").addEventListener("change", e => {
+  const t = e.target;
+  if(t.id === "tSlider"){ renderSheet(); return; }
+  if(t.dataset.pf){ ai.profile[t.dataset.pf] = t.type === "number" ? Math.max(0, +t.value || 0) : t.value; renderSheet(); return; }
+  if(t.dataset.hedef){ const u = state.aile.uyeler.find(x => x.id === t.dataset.hedef); u.hedef = DURAKLAR.find(d => d.ad === t.value) || u.hedef; render(); }
+});
+$("sheetBody").addEventListener("submit", e => { if(e.target.id !== "aiForm") return; e.preventDefault(); const v = $("aiIn").value; aiAskM(v); });
+/* ---------- Streamlit köprüsü (app.py ?view=mobile): hazır sinyali + isteğe bağlı Gemini ---------- */
+const ST_HOST = window.parent !== window;
+const HOST = {gemini:false};
+const stPost = (type, extra) => { try{ window.parent.postMessage({isStreamlitMessage:true, type, ...extra}, "*"); }catch(_){} };
+if(ST_HOST){ stPost("streamlit:componentReady", {apiVersion:1}); stPost("streamlit:setFrameHeight", {height:innerHeight}); }
+const hostOut = {route_context:null, ask:null, taha:false};
+addEventListener("message", e => {
+  const d = e.data; if(!d || d.type !== "streamlit:render" || !d.args) return;
+  HOST.gemini = !!d.args.gemini;
+  let changed = false;
+  Object.entries(d.args.replies || {}).forEach(([id, txt]) => {
+    const m = ai.msgs.find(x => x.id === id); if(!m || m.gemini !== undefined) return;
+    m.gemini = !!(txt && txt.trim()); if(m.gemini) m.text = txt.trim(); changed = true;
+  });
+  if(changed && M.tab === "ai") renderSheet();
+});
+function aiAskM(q){
+  q = String(q || "").trim(); if(!q) return;
+  ai.msgs.push({id:"m" + (++ai.seq), role:"me", text:q});
+  let res; try{ res = aiAnswer(q); }catch(err){ console.error(err); res = {text:"Bu soruyu yanıtlarken bir sorun oluştu. Farklı bir şekilde sorar mısın?"}; }
+  const id = "a" + (++ai.seq);
+  ai.msgs.push({id, role:"bot", text:res.text,
+    act: res.act || (res.route && res.route.id !== aktifRota().id ? {lbl:`Haritada göster: ${res.route.tip}`, fn:() => selectRoute(res.route.id)} : null)});
+  if(ST_HOST && HOST.gemini){ hostOut.ask = {id, q, draft:res.text}; stPost("streamlit:setComponentValue", {value:JSON.parse(JSON.stringify(hostOut)), dataType:"json"}); }
+  if(M.tab === "ai") renderSheet();
+  setTimeout(() => $("aiIn")?.focus(), 30);
+}
+function setTab(tab){
+  M.tab = tab;
+  document.querySelectorAll(".tab").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === tab));
+  renderSheet();
+  setSnap(tab === "rota" ? (M.snap === "peek" ? "half" : M.snap) : "full", tab === "rota");
+}
+document.querySelector(".tabs").addEventListener("click", e => { const b = e.target.closest(".tab"); if(b) setTab(b.dataset.tab); });
+$("chipTime").addEventListener("click", () => { M.timeOpen = !M.timeOpen; if(M.tab !== "rota") setTab("rota"); else renderSheet(); if(M.snap === "peek") setSnap("half"); $("sheetBody").scrollTop = 0; });
+$("chipWx").addEventListener("click", () => setTab("ayar"));
+$("btnFit").addEventListener("click", fitRoute);
+$("btnSwap").addEventListener("click", () => { state.trip = {from:state.trip.to, to:state.trip.from}; tripChanged(); render({forceFocus:true}); });
+
+/* ---------- arama ekranı ---------- */
+function openSearch(which){
+  M.searchFor = which; $("search").classList.add("open");
+  $("sIn").value = ""; $("sIn").placeholder = which === "from" ? "Nereden? Durak, iskele, yer" : "Nereye? Durak, iskele, Kent Lokantası…";
+  $("sGps").hidden = which !== "from"; sList(""); setTimeout(() => $("sIn").focus(), 50);
+}
+function closeSearch(){ $("search").classList.remove("open"); $(M.searchFor === "from" ? "fFrom" : "fTo").focus(); M.searchFor = null; }
+function sList(q){
+  const items = searchItems(q);
+  $("sList").innerHTML = items.length ? items.map((it, i) => {
+    const col = it.kind === "ornek" ? "#1F2937" : it.kind === "iskele" ? "#0A7EB9" : KAT[it.kind]?.renk || "#6B7280";
+    const ic = it.kind === "iskele" ? "vapur" : it.kind === "lokanta" ? "fork" : it.kind === "spor" ? "dumbbell" : it.kind === "muze" ? "museum" : it.kind === "ornek" ? "star" : "metro";
+    return `<button role="option" data-i="${i}" class="w-full flex items-center gap-3 px-4 min-h-[60px] text-left border-b border-gray-50 active:bg-ui-bg">
+      <span class="w-9 h-9 rounded-full grid place-items-center text-white flex-none" style="background:${col}">${svg(ic,16,2.2,"#fff")}</span>
+      <span class="min-w-0"><span class="block text-title truncate">${esc(it.ad)}</span><span class="block text-description text-ui-muted truncate">${esc(it.alt)}</span></span></button>`;
+  }).join("") : `<p class="p-6 text-body text-ui-muted">Sonuç yok. Durak, iskele, Kent Lokantası, spor tesisi ya da müze adı dene.</p>`;
+  sList.items = items;
+}
+function pick(it){
+  const other = state.trip[M.searchFor === "from" ? "to" : "from"];
+  if(hav(it.pt, other.pt) < 150){ toast("Kalkış ve varış aynı nokta olamaz."); return; }
+  state.trip[M.searchFor] = {ad:it.ad, alt:it.alt, pt:it.pt, key:it.key};
+  tripChanged(); closeSearch(); if(M.tab !== "rota") setTab("rota");
+  render({forceFocus:true});
+}
+$("fFrom").addEventListener("click", () => openSearch("from"));
+$("fTo").addEventListener("click", () => openSearch("to"));
+$("sBack").addEventListener("click", closeSearch);
+$("sIn").addEventListener("input", e => sList(e.target.value));
+$("sIn").addEventListener("keydown", e => { if(e.key === "Enter" && sList.items?.length){ e.preventDefault(); pick(sList.items[0]); } if(e.key === "Escape") closeSearch(); });
+$("sList").addEventListener("click", e => { const b = e.target.closest("[data-i]"); if(b) pick(sList.items[+b.dataset.i]); });
+$("sGps").addEventListener("click", () => {
+  if(!navigator.geolocation){ toast("Bu tarayıcı konum paylaşmayı desteklemiyor."); return; }
+  navigator.geolocation.getCurrentPosition(pos => {
+    const pt = [pos.coords.latitude, pos.coords.longitude];
+    if(pt[0] < 40.75 || pt[0] > 41.35 || pt[1] < 28 || pt[1] > 29.95){ toast("Konumun İstanbul ağının dışında görünüyor; kalkışı aramadan seç."); return; }
+    const near = N.reduce((a, n) => hav(pt, n.pt) < hav(pt, a.pt) ? n : a, N[0]);
+    pick({ad:"Konumum", alt:`En yakın durak: ${near.ad}`, pt, key:"gps"});
+  }, err => toast(err.code === 1 ? "Konum izni verilmedi. Tarayıcı ayarlarından izin ver ya da aramadan seç." : "Konum alınamadı; tekrar dene ya da aramadan seç."), {timeout:8000, maximumAge:60000});
+});
+
+/* ================= canlı yolculuk ================= */
+const sim = {on:false, playing:false, done:false, t:0, total:0, segs:[], legIdx:-1, raf:0, last:0, marker:null, trail:null, locked:false, fares:0, binis:0, mpuan:false, lastPan:0};
+const dist = (a, b) => Math.hypot((b[1] - a[1]) * Math.cos(a[0] * Math.PI / 180), b[0] - a[0]);
+function buildSegs(r){
+  let t = 0, last = state.trip.from.pt;
+  return r.legs.map((l, i) => {
+    let pts = l.g && D.geoms[l.g] ? D.geoms[l.g] : null;
+    if(!pts){ const p = l.mod === "mola" && POI_BY_ID[r.mola_poi]; pts = p ? [[p.lat, p.lon]] : [last]; }
+    const cum = [0]; for(let k = 1; k < pts.length; k++) cum.push(cum[k - 1] + dist(pts[k - 1], pts[k]));
+    const s = {i, l, t0:t, t1:t + l.dk, pts, cum, len:cum[cum.length - 1]}; t += l.dk; last = pts[pts.length - 1]; return s;
+  });
+}
+function posAt(s, f){
+  if(s.pts.length === 1 || !s.len) return s.pts[0];
+  const d = f * s.len; let k = 1; while(k < s.cum.length - 1 && s.cum[k] < d) k++;
+  const a = s.pts[k - 1], b = s.pts[k], u = Math.min(1, (d - s.cum[k - 1]) / (s.cum[k] - s.cum[k - 1] || 1));
+  return [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u];
+}
+const vehIcon = (m, c) => div(`<div class="veh" style="--vc:${m === "mola" ? "#FBB034" : c}"><span class="ring"></span><span class="core">${svg(m === "mola" ? "mola" : ICO[m] ? m : "yurume",18,2.2,"#fff")}</span></div>`, [38,38], [19,19]);
+function simStart(){
+  const r = aktifRota(); if(!r || r.iptal) return;
+  simStop(true);
+  Object.assign(sim, {on:true, playing:true, done:false, t:0, segs:buildSegs(r), legIdx:-1, locked:false, fares:0, binis:0, mpuan:false});
+  sim.total = sim.segs.length ? sim.segs[sim.segs.length - 1].t1 : 0;
+  sim.trail = L.polyline([], {color:"#1F2937", weight:4, opacity:.85, interactive:false}).addTo(G.sim);
+  sim.marker = L.marker(state.trip.from.pt, {zIndexOffset:2000, interactive:false, keyboard:false, icon:vehIcon("yurume", ROUTE_COL[r.renk])}).addTo(G.sim);
+  setSnap("peek", false); fitRoute();
+  sim.last = performance.now(); sim.raf = requestAnimationFrame(frame); renderSheet();
+}
+function simStop(silent){
+  cancelAnimationFrame(sim.raf); G.sim.clearLayers();
+  Object.assign(sim, {on:false, playing:false, done:false, t:0, legIdx:-1, marker:null, trail:null, locked:false});
+  if(!silent) renderSheet();
+}
+function simToggle(){
+  if(!sim.on || sim.done){ simStart(); return; }
+  sim.playing = !sim.playing;
+  if(sim.playing){ sim.last = performance.now(); sim.raf = requestAnimationFrame(frame); } else cancelAnimationFrame(sim.raf);
+  renderSheet();
+}
+function frame(ts){
+  if(!sim.playing) return;
+  const dt = Math.min(.1, (ts - sim.last) / 1000); sim.last = ts;
+  const cur = sim.segs.find(s => sim.t < s.t1) || sim.segs[sim.segs.length - 1];
+  sim.t = Math.min(sim.total, sim.t + dt * 2.4 * state.speed * (cur.l.mod === "mola" ? 4 : 1));
+  apply();
+  if(sim.t >= sim.total){ finish(); return; }
+  sim.raf = requestAnimationFrame(frame);
+}
+function apply(){
+  const seg = sim.segs.find(s => sim.t < s.t1) || sim.segs[sim.segs.length - 1];
+  if(seg.i !== sim.legIdx){ if(!legChange(seg)) return; }
+  const f = seg.l.dk ? (sim.t - seg.t0) / seg.l.dk : 1, pos = posAt(seg, Math.max(0, Math.min(1, f)));
+  sim.marker.setLatLng(pos);
+  const tr = []; for(const s of sim.segs){ if(s.i < seg.i) tr.push(...s.pts); else if(s.i === seg.i){ const d = f * s.len; for(let k = 0; k < s.pts.length && s.cum[k] <= d; k++) tr.push(s.pts[k]); tr.push(pos); break; } }
+  sim.trail.setLatLngs(tr);
+  if(performance.now() - sim.lastPan > 800){ sim.lastPan = performance.now(); if(!map.getBounds().pad(-.15).contains(pos)) map.panTo(pos, {animate:true, duration:.6}); }
+  const bar = $("simBar"); if(bar){ bar.style.width = (sim.t / sim.total * 100).toFixed(1) + "%"; $("simClock").textContent = fmt(toMin(state.saat) + sim.t); $("simSub").textContent = `${Math.max(0, Math.ceil(seg.t1 - sim.t))} dk · varış ${varis(aktifRota())}`; }
+}
+function legChange(seg){
+  const prev = sim.legIdx >= 0 ? sim.segs[sim.legIdx] : null, r = aktifRota(), m = seg.l.mod;
+  if(BINIS.has(m) && !charge(m)){ sim.playing = false; cancelAnimationFrame(sim.raf); sim.t = seg.t0; renderSheet(); return false; }
+  sim.legIdx = seg.i;
+  sim.marker.setIcon(vehIcon(m, ROUTE_COL[r.renk]));
+  if(prev && prev.l.mod === "mola" && !sim.mpuan && r.puan){ sim.mpuan = true; state.puan += r.puan; toast(`+${r.puan} İBB Puanı · yalnızca ${KAPALI.join(", ")}'te geçerli`); }
+  const was = sim.locked; sim.locked = m === "vapur";
+  if(sim.locked && !was) toast(`Açık denizdesin · rota ${esc(iskele(seg.l))} kadar kilitli`);
+  if(m === "mola") toast(`Mola başladı · ${esc(POI_BY_ID[r.mola_poi]?.isim || "")}`);
+  renderSheet(); return true;
+}
+function finish(){
+  sim.playing = false; sim.done = true; cancelAnimationFrame(sim.raf); sim.locked = false;
+  const r = aktifRota(); if(r.mola && !sim.mpuan && r.puan){ sim.mpuan = true; state.puan += r.puan; }
+  toast(`Varış ${fmt(toMin(state.saat) + sim.total)} · ${esc(state.trip.to.ad)} · ücret ${tl(sim.fares)}`);
+  simStop(true); setSnap("half"); render();
+}
+/* ---------- cüzdan (temsilî tarife) ---------- */
+const fare = tip => Math.round((tip === "ogrenci" ? UCRET.ogrenci : UCRET.tam) * (sim.binis ? UCRET.aktarma_orani : 1) * 100) / 100;
+function topUp(u){
+  const a = state.aile; if(!u.oto || u.bakiye >= a.esik || a.master.bakiye < a.yukleme) return;
+  a.master.bakiye -= a.yukleme; u.bakiye += a.yukleme; toast(`${esc(u.ad)}'in kartına ana karttan ${tl(a.yukleme)} otomatik yüklendi`);
+}
+function charge(mod){
+  const u = traveler();
+  if(u){ const f = fare(u.tip); if(u.bakiye < f) topUp(u);
+    if(u.bakiye < f){ toast(`${esc(u.ad)}: yetersiz bakiye. Cüzdan'dan otomatik yüklemeyi aç ve devam et.`); return false; }
+    u.bakiye -= f; topUp(u); sim.fares += f; sim.binis++; return true; }
+  const f = fare("tam");
+  if(state.mod === "aile"){ state.aile.master.bakiye -= f; sim.fares += f; sim.binis++; return true; }
+  if(state.bakiye < f){ toast("Yetersiz bakiye · İstanbulkart'ını yükle."); return false; }
+  state.bakiye -= f; sim.fares += f; sim.binis++; return true;
+}
+function kidTrip(id){
+  const u = state.aile.uyeler.find(x => x.id === id), f = UCRET.ogrenci;
+  if(u.bakiye < f) topUp(u);
+  if(u.bakiye < f){ toast(`${esc(u.ad)}: yetersiz bakiye.`); return; }
+  u.bakiye -= f; topUp(u); render();
+}
+
+/* ================= açılış ================= */
+window.__istRoute = {state, sim, D, M,
+  audit(){ return {markers:document.querySelectorAll(".leaflet-marker-pane > *").length, paths:document.querySelectorAll(".leaflet-overlay-pane path").length}; }};
+setSnap("half", false);
+render({forceFocus:true});
+new ResizeObserver(() => {
+  const b = $("map").getBoundingClientRect();
+  if(b.width && b.height){ map.invalidateSize(false); if(pendingFit){ setSnap(M.snap, false); fitRoute(); } }
+}).observe($("map"));
+addEventListener("resize", () => { clearTimeout(window.__rz); window.__rz = setTimeout(() => setSnap(M.snap), 200); });
+})();
+</script>
+</body>
+</html>
